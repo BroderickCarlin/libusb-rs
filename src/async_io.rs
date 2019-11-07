@@ -1,8 +1,8 @@
 use libc::{c_int, c_uchar, c_uint, c_void};
+use libusb1_sys::*;
 use std::cell::UnsafeCell;
 use std::collections::{HashSet, VecDeque};
 use std::{marker::PhantomData, mem, slice, sync::Mutex, time::Duration};
-use libusb1_sys::*;
 
 use crate::{constants::*, Context, DeviceHandle, Error, Result};
 
@@ -215,7 +215,7 @@ impl<'d> AsyncGroup<'d> {
             return Err(Error::NotFound);
         }
 
-         {
+        {
             let transfer;
             loop {
                 {
@@ -224,7 +224,7 @@ impl<'d> AsyncGroup<'d> {
                         transfer = t;
                         break;
                     }
-                    unsafe  {*self.callback_data.flag.get() = 0};
+                    unsafe { *self.callback_data.flag.get() = 0 };
                 }
                 try_unsafe!(libusb_handle_events_completed(
                     self.context.as_raw(),
@@ -241,6 +241,34 @@ impl<'d> AsyncGroup<'d> {
                 _handle: PhantomData,
                 _buffer: PhantomData,
             })
+        }
+    }
+
+    /// Non-blocking check of pending transfers. Return if any are complete.
+    pub fn any(&mut self) -> Result<Option<Transfer<'d>>> {
+        if self.pending.is_empty() {
+            // Otherwise this function would block forever waiting for a transfer to complete
+            return Err(Error::NotFound);
+        }
+
+        let mut completed = self.callback_data.completed.lock().unwrap();
+        if let Some(transfer) = completed.pop_front() {
+            if !self.pending.remove(&transfer) {
+                panic!("Got a completion for a transfer that wasn't pending");
+            }
+
+            Ok(Some(Transfer {
+                transfer,
+                _handle: PhantomData,
+                _buffer: PhantomData,
+            }))
+        } else {
+            unsafe { *self.callback_data.flag.get() = 0 };
+            try_unsafe!(libusb_handle_events_completed(
+                self.context.as_raw(),
+                self.callback_data.flag.get()
+            ));
+            Ok(None)
         }
     }
 
