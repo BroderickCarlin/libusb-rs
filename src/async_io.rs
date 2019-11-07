@@ -1,3 +1,4 @@
+use libc::timeval;
 use libc::{c_int, c_uchar, c_uint, c_void};
 use libusb1_sys::*;
 use std::cell::UnsafeCell;
@@ -251,8 +252,29 @@ impl<'d> AsyncGroup<'d> {
             return Err(Error::NotFound);
         }
 
-        let mut completed = self.callback_data.completed.lock().unwrap();
-        if let Some(transfer) = completed.pop_front() {
+        {
+            let transfer;
+            loop {
+                {
+                    let mut completed = self.callback_data.completed.lock().unwrap();
+                    if let Some(t) = completed.pop_front() {
+                        transfer = t;
+                        break;
+                    }
+                    unsafe { *self.callback_data.flag.get() = 0 };
+                }
+                let tv = timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                };
+                try_unsafe!(libusb_handle_events_timeout_completed(
+                    self.context.as_raw(),
+                    &tv,
+                    self.callback_data.flag.get()
+                ));
+                return Ok(None);
+            }
+
             if !self.pending.remove(&transfer) {
                 panic!("Got a completion for a transfer that wasn't pending");
             }
@@ -262,13 +284,6 @@ impl<'d> AsyncGroup<'d> {
                 _handle: PhantomData,
                 _buffer: PhantomData,
             }))
-        } else {
-            unsafe { *self.callback_data.flag.get() = 0 };
-            try_unsafe!(libusb_handle_events_completed(
-                self.context.as_raw(),
-                self.callback_data.flag.get()
-            ));
-            Ok(None)
         }
     }
 

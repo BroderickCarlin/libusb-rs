@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::time::Duration;
 
 use rusb::{
@@ -15,21 +14,14 @@ struct Endpoint {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    if args.len() < 3 {
-        println!("usage: async <vendor-id> <product-id>");
-        return;
-    }
-
-    let vid: u16 = FromStr::from_str(args[1].as_ref()).unwrap();
-    let pid: u16 = FromStr::from_str(args[2].as_ref()).unwrap();
+    let vid: u16 = 0x1A86;
+    let pid: u16 = 0xE024;
 
     let context = Context::new().unwrap();
 
     let (device, device_desc, mut handle) =
         open_device(&context, vid, pid).expect("Could not open device");
-    read_device(&context, &device, &device_desc, &mut handle).unwrap();
+    read_device(&context, &device, &device_desc, &mut handle).expect("barfed here");
 }
 
 fn open_device(
