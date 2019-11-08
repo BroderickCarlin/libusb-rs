@@ -14,6 +14,7 @@ pub struct Transfer<'d> {
     _handle: PhantomData<&'d DeviceHandle<'d>>, // transfer.dev_handle
     _buffer: PhantomData<&'d mut [u8]>,         // transfer.data
     transfer: *mut libusb1_sys::libusb_transfer,
+    pub buffer: Vec<u8>,
 }
 
 /// The status of a Transfer returned by wait_any.
@@ -49,53 +50,42 @@ impl<'d> Transfer<'d> {
         handle: &'d DeviceHandle<'d>,
         endpoint: u8,
         transfer_type: c_uchar,
-        buffer: &'d mut [u8],
         timeout: Duration,
     ) -> Transfer<'d> {
         let timeout_ms = timeout.as_secs() * 1000 + u64::from(timeout.subsec_nanos()) / 1_000_000;
         unsafe {
-            let t = libusb_alloc_transfer(0);
-            (*t).status = -1;
-            (*t).dev_handle = handle.as_raw();
-            (*t).endpoint = endpoint as c_uchar;
-            (*t).transfer_type = transfer_type;
-            (*t).timeout = timeout_ms as c_uint;
-            (*t).buffer = buffer.as_mut_ptr();
-            (*t).length = buffer.len() as i32;
-            (*t).actual_length = 0;
-
-            Transfer {
-                transfer: t,
+            let mut t = Transfer {
+                transfer: libusb_alloc_transfer(0),
                 _handle: PhantomData,
                 _buffer: PhantomData,
-            }
+                buffer: vec![0u8; 64],
+            };
+
+            (*(t.transfer)).status = -1;
+            (*(t.transfer)).dev_handle = handle.as_raw();
+            (*(t.transfer)).endpoint = endpoint as c_uchar;
+            (*(t.transfer)).transfer_type = transfer_type;
+            (*(t.transfer)).timeout = timeout_ms as c_uint;
+            (*(t.transfer)).buffer = (&mut t.buffer[..]).as_mut_ptr();
+            (*(t.transfer)).length = t.buffer.len() as i32;
+            (*(t.transfer)).actual_length = 0;
+
+            t
         }
     }
 
     /// Creates an asynchronous bulk transfer, but does not submit it.
-    pub fn bulk(
-        handle: &'d DeviceHandle<'d>,
-        endpoint: u8,
-        buffer: &'d mut [u8],
-        timeout: Duration,
-    ) -> Transfer<'d> {
-        Transfer::new(handle, endpoint, LIBUSB_TRANSFER_TYPE_BULK, buffer, timeout)
+    pub fn bulk(handle: &'d DeviceHandle<'d>, endpoint: u8, timeout: Duration) -> Transfer<'d> {
+        Transfer::new(handle, endpoint, LIBUSB_TRANSFER_TYPE_BULK, timeout)
     }
 
     /// Creates an asynchronous interrupt transfer, but does not submit it.
     pub fn interrupt(
         handle: &'d DeviceHandle<'d>,
         endpoint: u8,
-        buffer: &'d mut [u8],
         timeout: Duration,
     ) -> Transfer<'d> {
-        Transfer::new(
-            handle,
-            endpoint,
-            LIBUSB_TRANSFER_TYPE_INTERRUPT,
-            buffer,
-            timeout,
-        )
+        Transfer::new(handle, endpoint, LIBUSB_TRANSFER_TYPE_INTERRUPT, timeout)
     }
 
     /// Gets the status of a completed transfer.
@@ -241,6 +231,7 @@ impl<'d> AsyncGroup<'d> {
                 transfer,
                 _handle: PhantomData,
                 _buffer: PhantomData,
+                buffer: vec![0u8; 64],
             })
         }
     }
@@ -283,6 +274,7 @@ impl<'d> AsyncGroup<'d> {
                 transfer,
                 _handle: PhantomData,
                 _buffer: PhantomData,
+                buffer: vec![0u8; 64],
             }))
         }
     }
